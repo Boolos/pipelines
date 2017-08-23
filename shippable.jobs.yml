@@ -1,3 +1,5 @@
 jobs:
-    - name: service-a_runCI
+    - name: ui_runCI
       type: runCI
+      steps:
+          - IN: service-a_runCI
