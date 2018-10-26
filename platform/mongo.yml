@@ -1,0 +1,8 @@
+jobs: []
+resources:
+  - name: mongo_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: mongo
+      versionName: 3.4.13

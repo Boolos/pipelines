@@ -1,0 +1,66 @@
+jobs:
+  - name: platform-rabbitmq_platform_manifest
+    type: manifest
+    steps:
+      - IN: platform-rabbitmq_image
+      - IN: platform-rabbitmq_test_platform_replicas
+  - name: platform-rabbitmq_test_platform_deploy
+    type: deploy
+    stabilityDuration: 120
+    maxWaitTime: 300
+    steps:
+      - IN: platform-rabbitmq_platform_manifest
+        deployName: platform-rabbitmq
+      - IN: test_platform_cluster
+      - IN: platform-rabbitmq_test_platform_opts
+        applyTo:
+          - platform-rabbitmq_image
+      - IN: platform-rabbitmq_test_platform_replicas
+        applyTo:
+          - platform-rabbitmq_image
+resources:
+  - name: platform-rabbitmq_test_platform_opts
+    type: dockerOptions
+    versionTemplate:
+      portMappings:
+        - ':5672'
+        - ':15672'
+      labels:
+        service: platform-rabbitmq
+        environment: test
+        app: platform
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 300m
+          memory: 300Mi
+  - name: platform-rabbitmq_test_platform_replicas
+    type: replicas
+    versionTemplate:
+      count: 1
+  - name: platform-rabbitmq_test_platform_loadbalancer
+    type: loadBalancer
+    integration: testing_cluster
+    versionTemplate:
+      sourceName: platform-rabbitmq
+      method: ClusterIP
+      namespace: platform-test
+      ports:
+        - name: port-5672
+          port: 5672
+          protocol: TCP
+        - name: port-15672
+          port: 15672
+          protocol: TCP
+      selector:
+        service: platform-rabbitmq
+        environment: test
+        app: platform
+  - name: platform-rabbitmq_image
+    type: image
+    integration: docker-hub
+    versionTemplate:
+      sourceName: rabbitmq
+      versionName: 3-management

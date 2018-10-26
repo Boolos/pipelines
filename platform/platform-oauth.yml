@@ -1,0 +1,8 @@
+jobs: []
+resources:
+  - name: platform-oauth_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: oryd/hydra
+      versionName: v0.9.12-http

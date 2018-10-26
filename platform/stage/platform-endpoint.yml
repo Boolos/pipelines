@@ -1,0 +1,192 @@
+jobs:
+  - name: platform-endpoint_stage_platform_create_secrets
+    type: runSh
+    steps:
+      - IN: platform-endpoint_test_platform_integration_tests
+      - IN: stage_platform_kube_cli_config
+      - IN: platform_docker_cli_config
+      - IN: platform-endpoint_stage_platform_secrets
+      - IN: platform_secrets_password
+      - TASK:
+          name: create_secrets
+          script:
+            - export RABBIT_LOGIN=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $RABBIT_LOGIN)
+            - export RABBIT_VHOST=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $RABBIT_VHOST)
+            - export RABBIT_PASSWORD=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $RABBIT_PASSWORD)
+            - export HYDRA_USERNAME=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $HYDRA_USERNAME)
+            - export HYDRA_PASSWORD=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $HYDRA_PASSWORD)
+            - export MAIL_GUN_KEY=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $MAIL_GUN_KEY)
+            - export MONGO_CREDENTIALS=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $MONGO_CREDENTIALS)
+            - export NEW_RELIC_LICENSE_KEY=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $NEW_RELIC_LICENSE_KEY)
+            - export CONNECT_AUTHORIZATION=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $CONNECT_AUTHORIZATION)
+            - export INTERNAL_USER=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $INTERNAL_USER)
+            - export INTERNAL_PASSWORD=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $INTERNAL_PASSWORD)
+            - export SEGMENT_KEY=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $SEGMENT_KEY)
+            - 'export RABBIT_LOGIN=$(if [ -z $RABBIT_LOGIN ]; then echo "''''"; else echo -n $RABBIT_LOGIN | base64 -w 0; fi)'
+            - 'export RABBIT_VHOST=$(if [ -z $RABBIT_VHOST ]; then echo "''''"; else echo -n $RABBIT_VHOST | base64 -w 0; fi)'
+            - 'export RABBIT_PASSWORD=$(if [ -z $RABBIT_PASSWORD ]; then echo "''''"; else echo -n $RABBIT_PASSWORD | base64 -w 0; fi)'
+            - 'export HYDRA_USERNAME=$(if [ -z $HYDRA_USERNAME ]; then echo "''''"; else echo -n $HYDRA_USERNAME | base64 -w 0; fi)'
+            - 'export HYDRA_PASSWORD=$(if [ -z $HYDRA_PASSWORD ]; then echo "''''"; else echo -n $HYDRA_PASSWORD | base64 -w 0; fi)'
+            - 'export MAIL_GUN_KEY=$(if [ -z $MAIL_GUN_KEY ]; then echo "''''"; else echo -n $MAIL_GUN_KEY | base64 -w 0; fi)'
+            - 'export MONGO_CREDENTIALS=$(if [ -z $MONGO_CREDENTIALS ]; then echo "''''"; else echo -n $MONGO_CREDENTIALS | base64 -w 0; fi)'
+            - 'export NEW_RELIC_LICENSE_KEY=$(if [ -z $NEW_RELIC_LICENSE_KEY ]; then echo "''''"; else echo -n $NEW_RELIC_LICENSE_KEY | base64 -w 0; fi)'
+            - 'export CONNECT_AUTHORIZATION=$(if [ -z $CONNECT_AUTHORIZATION ]; then echo "''''"; else echo -n $CONNECT_AUTHORIZATION | base64 -w 0; fi)'
+            - 'export INTERNAL_USER=$(if [ -z $INTERNAL_USER ]; then echo "''''"; else echo -n $INTERNAL_USER | base64 -w 0; fi)'
+            - 'export INTERNAL_PASSWORD=$(if [ -z $INTERNAL_PASSWORD ]; then echo "''''"; else echo -n $INTERNAL_PASSWORD | base64 -w 0; fi)'
+            - 'export SEGMENT_KEY=$(if [ -z $SEGMENT_KEY ]; then echo "''''"; else echo -n $SEGMENT_KEY | base64 -w 0; fi)'
+            - |-
+              echo "apiVersion: v1
+              kind: Secret
+              metadata:
+                name: platform-endpoint
+                namespace: platform-stage
+              type: Opaque
+              data:
+                RABBIT_LOGIN: $RABBIT_LOGIN
+                RABBIT_VHOST: $RABBIT_VHOST
+                RABBIT_PASSWORD: $RABBIT_PASSWORD
+                HYDRA_USERNAME: $HYDRA_USERNAME
+                HYDRA_PASSWORD: $HYDRA_PASSWORD
+                MAIL_GUN_KEY: $MAIL_GUN_KEY
+                MONGO_CREDENTIALS: $MONGO_CREDENTIALS
+                NEW_RELIC_LICENSE_KEY: $NEW_RELIC_LICENSE_KEY
+                CONNECT_AUTHORIZATION: $CONNECT_AUTHORIZATION
+                INTERNAL_USER: $INTERNAL_USER
+                INTERNAL_PASSWORD: $INTERNAL_PASSWORD
+                SEGMENT_KEY: $SEGMENT_KEY" > ./secrets.yaml
+            - kubectl -n platform-stage delete secret/platform-endpoint 2>/dev/null || echo "no pre-existing secrets"
+            - kubectl -n platform-stage create -f secrets.yaml
+  - name: platform-endpoint_stage_platform_deploy
+    type: deploy
+    stabilityDuration: 120
+    maxWaitTime: 300
+    steps:
+      - IN: platform-endpoint_stage_platform_create_secrets
+      - IN: platform-endpoint_test_platform_deploy
+        switch: 'off'
+      - IN: stage_platform_cluster
+      - IN: platform-endpoint_stage_platform_opts
+        applyTo:
+          - platform-endpoint_image
+      - IN: platform-endpoint_stage_platform_replicas
+        applyTo:
+          - platform-endpoint_image
+      - IN: platform-endpoint_stage_platform_params
+        applyTo:
+          - platform-endpoint_image
+  - name: platform-endpoint_stage_platform_smoke_tests
+    type: runSh
+    steps:
+      - IN: platform-endpoint_stage_platform_deploy
+      - IN: platform_docker_cli_config
+      - IN: stage_platform_smoke_tests_params
+      - IN: stage_platform_smoke_tests_secrets
+      - IN: platform-ui_platform_smoke_tests_global_state
+      - TASK:
+          name: smoke_tests
+          script:
+            - export SMOKE_TAG=$(shipctl get_resource_version_key platform-ui_platform_smoke_tests_global_state "SMOKE_TAG")
+            - 'docker run -e BROWSER -e BROWSER_STACK_BUILD_VERSION=$SMOKE_TAG -e SERVER_NAME -e URL -e BROWSER_STACK_KEY -e BROWSER_STACK_USER casestack/platform-ui:$SMOKE_TAG'
+    on_failure:
+      - NOTIFY: platform_slack_notifications
+  - name: platform-endpoint_stage_platform_integration_tests
+    type: runSh
+    steps:
+      - IN: platform-endpoint_stage_platform_smoke_tests
+      - IN: platform_docker_cli_config
+      - IN: stage_platform_integration_tests_params
+      - IN: stage_platform_integration_tests_secrets
+      - IN: platform-endpoint_platform_integration_tests_global_state
+      - TASK:
+          name: integration_tests
+          script:
+            - export INTEGRATION_TAG=$(shipctl get_resource_version_key platform-endpoint_platform_integration_tests_global_state "INTEGRATION_TAG")
+            - 'docker run -e BASE_URL -e CONNECT_USER -e CONNECT_PASSWORD casestack/platform-endpoint:$INTEGRATION_TAG'
+    on_failure:
+      - NOTIFY: platform_slack_notifications
+resources:
+  - name: platform-endpoint_stage_platform_secrets
+    type: params
+    versionTemplate:
+      params:
+        RABBIT_LOGIN: jevkjdgd
+        RABBIT_VHOST: jevkjdgd
+        RABBIT_PASSWORD: M4cP6GfKesbJ4wMgnVkvUG4bgnazKh3h
+        HYDRA_USERNAME: admin
+        HYDRA_PASSWORD: siro6j6gTLnxeFbcCS3y
+        MAIL_GUN_KEY: key-646fde1ea1daa7134c920d3a69519c49
+        MONGO_CREDENTIALS: 'platform-admin:%2F8rOIX0kjS%23vsDcy'
+        NEW_RELIC_LICENSE_KEY: 0a3f0b859626e0ab6f9b86f2f95642f6d8c1dd9c
+        CONNECT_AUTHORIZATION: Basic bmF2aWdhdG9yOlVmb2hqYWkxZGFobDh1aTc=
+        INTERNAL_USER: E6sKxs7DAVreMURLwlEC0ybF76SrgIZ1
+        INTERNAL_PASSWORD: 8wBxdOYtCG0YlSu7W7xt6Hi5WbfaDgLw
+        SEGMENT_KEY: fvP1ZmQkWxFakZIKT6i893jQunwpDseX
+  - name: platform-endpoint_stage_platform_opts
+    type: dockerOptions
+    versionTemplate:
+      portMappings:
+        - ':40404'
+      labels:
+        service: platform-endpoint
+        environment: stage
+        app: platform
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 300m
+          memory: 300Mi
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 40404
+        initialDelaySeconds: 30
+        timeoutSeconds: 1
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 40404
+        initialDelaySeconds: 30
+        timeoutSeconds: 1
+  - name: platform-endpoint_stage_platform_replicas
+    type: replicas
+    versionTemplate:
+      count: 2
+  - name: platform-endpoint_stage_platform_loadbalancer
+    type: loadBalancer
+    integration: staging_cluster
+    versionTemplate:
+      sourceName: platform-endpoint
+      method: ClusterIP
+      namespace: platform-stage
+      ports:
+        - name: port-40404
+          port: 40404
+          protocol: TCP
+      selector:
+        service: platform-endpoint
+        environment: stage
+        app: platform
+  - name: platform-endpoint_stage_platform_params
+    type: params
+    versionTemplate:
+      params:
+        ENDPOINT: 'https://navigator-stage.supplypike.com'
+        LOG_LEVEL: debug
+        RABBIT_HOST: lion.rmq.cloudamqp.com
+        RABBIT_PORT: '5672'
+        ENABLE_EMAILS: 'true'
+        INVOICES: 'true'
+        FULFILLMENT: 'true'
+        MAILGUN_DOMAIN: mailgun-sandbox.supplypike.com
+        MONGO_URL: 'ds037537-a0.mongolab.com:37537,ds037537-a1.mongolab.com:37537/platform?replicaSet=rs-ds037537'
+        NEW_RELIC_ENABLED: 'true'
+        NEW_RELIC_APP_NAME: platform-endpoint-stage
+        PO_LIMIT: '50'
+        SEND_PO: 'true'
+        SPEDI_HOST: 'https://gateway-stage.connect.supplypike.com'
+        SPEDI_PATH: /server?request=send
+        CONNECT_SELF_SIGNED: 'false'
+        ATHENA_URL: 'athena:8080'
+        SEGMENT_ENABLED: 'true'

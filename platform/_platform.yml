@@ -1,0 +1,14 @@
+jobs: []
+resources:
+  - name: platform_secrets_password
+    type: integration
+    integration: platform_secrets_key
+  - name: platform_docker_cli_config
+    type: cliConfig
+    integration: docker_hub_casestack_integration
+  - name: platform_slack_notifications
+    type: notification
+    integration: slack
+    versionTemplate:
+      recipients:
+        - '#navigator-cd'

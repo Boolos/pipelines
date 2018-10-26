@@ -1,0 +1,19 @@
+jobs:
+  - name: supplypike-edi_update_image
+    type: runSh
+    steps:
+      - IN: supplypike-edi_runCI
+      - TASK:
+          name: update_image
+          script:
+            - BRANCH="$(shipctl get_resource_version_key supplypike-edi_runCI BRANCH)"
+            - IS_PULL_REQUEST="$(shipctl get_resource_version_key supplypike-edi_runCI IS_PULL_REQUEST)"
+            - 'if [ "$BRANCH" == "develop" ]  && [ "$IS_PULL_REQUEST" != true ]; then shipctl copy_resource_file_from_state supplypike-edi_runCI image_tag.env $JOB_STATE/supplypike-edi_image.env; fi'
+      - OUT: supplypike-edi_image
+resources:
+  - name: supplypike-edi_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: casestack/supplypike-edi
+      versionName: master.1

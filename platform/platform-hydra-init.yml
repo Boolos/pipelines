@@ -1,0 +1,8 @@
+jobs: []
+resources:
+  - name: platform-hydra-init_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: casestack/platform-hydra-init
+      versionName: 0.0.3

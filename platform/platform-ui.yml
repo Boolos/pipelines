@@ -1,0 +1,19 @@
+jobs:
+  - name: platform-ui_update_image
+    type: runSh
+    steps:
+      - IN: platform-ui_runCI
+      - TASK:
+          name: update_image
+          script:
+            - BRANCH="$(shipctl get_resource_version_key platform-ui_runCI BRANCH)"
+            - IS_PULL_REQUEST="$(shipctl get_resource_version_key platform-ui_runCI IS_PULL_REQUEST)"
+            - 'if [ "$BRANCH" == "develop" ]  && [ "$IS_PULL_REQUEST" != true ]; then shipctl copy_resource_file_from_state platform-ui_runCI image_tag.env $JOB_STATE/platform-ui_image.env; fi'
+      - OUT: platform-ui_image
+resources:
+  - name: platform-ui_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: casestack/platform-ui
+      versionName: master.1

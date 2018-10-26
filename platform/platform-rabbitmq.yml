@@ -1,0 +1,8 @@
+jobs: []
+resources:
+  - name: platform-rabbitmq_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: rabbitmq
+      versionName: 3-management

@@ -1,0 +1,161 @@
+jobs:
+  - name: supplypike-edi_platform_manifest
+    type: manifest
+    steps:
+      - IN: supplypike-edi_image
+      - IN: supplypike-edi_test_platform_replicas
+  - name: supplypike-edi_test_platform_create_secrets
+    type: runSh
+    steps:
+      - IN: supplypike-edi_platform_manifest
+      - IN: test_platform_kube_cli_config
+      - IN: platform_docker_cli_config
+      - IN: supplypike-edi_test_platform_secrets
+      - IN: platform_secrets_password
+      - TASK:
+          name: create_secrets
+          script:
+            - export RABBIT_LOGIN=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $RABBIT_LOGIN)
+            - export RABBIT_VHOST=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $RABBIT_VHOST)
+            - export RABBIT_PASSWORD=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $RABBIT_PASSWORD)
+            - export CONNECT_PASSWORD=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $CONNECT_PASSWORD)
+            - export INTERNAL_USER=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $INTERNAL_USER)
+            - export INTERNAL_PASSWORD=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $INTERNAL_PASSWORD)
+            - 'export RABBIT_LOGIN=$(if [ -z $RABBIT_LOGIN ]; then echo "''''"; else echo -n $RABBIT_LOGIN | base64 -w 0; fi)'
+            - 'export RABBIT_VHOST=$(if [ -z $RABBIT_VHOST ]; then echo "''''"; else echo -n $RABBIT_VHOST | base64 -w 0; fi)'
+            - 'export RABBIT_PASSWORD=$(if [ -z $RABBIT_PASSWORD ]; then echo "''''"; else echo -n $RABBIT_PASSWORD | base64 -w 0; fi)'
+            - 'export CONNECT_PASSWORD=$(if [ -z $CONNECT_PASSWORD ]; then echo "''''"; else echo -n $CONNECT_PASSWORD | base64 -w 0; fi)'
+            - 'export INTERNAL_USER=$(if [ -z $INTERNAL_USER ]; then echo "''''"; else echo -n $INTERNAL_USER | base64 -w 0; fi)'
+            - 'export INTERNAL_PASSWORD=$(if [ -z $INTERNAL_PASSWORD ]; then echo "''''"; else echo -n $INTERNAL_PASSWORD | base64 -w 0; fi)'
+            - |-
+              echo "apiVersion: v1
+              kind: Secret
+              metadata:
+                name: supplypike-edi
+                namespace: platform-test
+              type: Opaque
+              data:
+                RABBIT_LOGIN: $RABBIT_LOGIN
+                RABBIT_VHOST: $RABBIT_VHOST
+                RABBIT_PASSWORD: $RABBIT_PASSWORD
+                CONNECT_PASSWORD: $CONNECT_PASSWORD
+                INTERNAL_USER: $INTERNAL_USER
+                INTERNAL_PASSWORD: $INTERNAL_PASSWORD" > ./secrets.yaml
+            - kubectl -n platform-test delete secret/supplypike-edi 2>/dev/null || echo "no pre-existing secrets"
+            - kubectl -n platform-test create -f secrets.yaml
+  - name: supplypike-edi_test_platform_deploy
+    type: deploy
+    stabilityDuration: 120
+    maxWaitTime: 300
+    steps:
+      - IN: supplypike-edi_test_platform_create_secrets
+      - IN: supplypike-edi_platform_manifest
+        deployName: supplypike-edi
+        switch: 'off'
+      - IN: test_platform_cluster
+      - IN: supplypike-edi_test_platform_opts
+        applyTo:
+          - supplypike-edi_image
+      - IN: supplypike-edi_test_platform_replicas
+        applyTo:
+          - supplypike-edi_image
+      - IN: supplypike-edi_test_platform_params
+        applyTo:
+          - supplypike-edi_image
+  - name: supplypike-edi_test_platform_integration_tests
+    type: runSh
+    steps:
+      - IN: supplypike-edi_test_platform_deploy
+      - IN: platform_docker_cli_config
+      - IN: test_platform_integration_tests_params
+      - IN: test_platform_integration_tests_secrets
+      - IN: supplypike-edi_platform_integration_tests_global_state
+      - TASK:
+          name: integration_tests
+          script:
+            - export INTEGRATION_TAG=$(shipctl get_resource_version_key supplypike-edi_platform_integration_tests_global_state "INTEGRATION_TAG")
+            - >-
+              docker run -e BASE_URL -e RABBIT_HOST -e RABBIT_PORT -e CONNECT_USER -e RABBIT_LOGIN -e RABBIT_PASSWORD -e RABBIT_VHOST -e CONNECT_PASSWORD -e INTERNAL_USER -e INTERNAL_PASSWORD
+              casestack/supplypike-edi:$INTEGRATION_TAG
+    on_failure:
+      - NOTIFY: platform_slack_notifications
+  - name: supplypike-edi_runCI
+    type: runCI
+    steps:
+      - OUT: supplypike-edi_platform_integration_tests_global_state
+resources:
+  - name: supplypike-edi_test_platform_secrets
+    type: params
+    versionTemplate:
+      params:
+        RABBIT_LOGIN: guest
+        RABBIT_VHOST: /
+        RABBIT_PASSWORD: guest
+        CONNECT_PASSWORD: password
+        INTERNAL_USER: u2I5wGYWnumR32zTS6vo0ILPfNICxqLP
+        INTERNAL_PASSWORD: fiyeYmMC5TBPQxGzd7VKUg4kiRF6F86a
+  - name: supplypike-edi_test_platform_opts
+    type: dockerOptions
+    versionTemplate:
+      portMappings:
+        - ':40404'
+      labels:
+        service: supplypike-edi
+        environment: test
+        app: platform
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 300m
+          memory: 300Mi
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 40404
+        initialDelaySeconds: 30
+        timeoutSeconds: 3
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 40404
+        initialDelaySeconds: 30
+        timeoutSeconds: 3
+  - name: supplypike-edi_test_platform_replicas
+    type: replicas
+    versionTemplate:
+      count: 1
+  - name: supplypike-edi_test_platform_loadbalancer
+    type: loadBalancer
+    integration: testing_cluster
+    versionTemplate:
+      sourceName: supplypike-edi
+      method: ClusterIP
+      namespace: platform-test
+      ports:
+        - name: port-40404
+          port: 40404
+          protocol: TCP
+      selector:
+        service: supplypike-edi
+        environment: test
+        app: platform
+  - name: supplypike-edi_image
+    type: image
+    integration: docker-hub
+    versionTemplate:
+      sourceName: casestack/supplypike-edi
+      versionName: master.1
+  - name: supplypike-edi_test_platform_params
+    type: params
+    versionTemplate:
+      params:
+        PORT: '40404'
+        LOG_LEVEL: trace
+        RABBIT_HOST: rabbitmq
+        RABBIT_PORT: '5672'
+        MONGO_URL: 'mongodb://mongo:27017/cs-test1'
+        CONNECT_USER: connect
+  - name: supplypike-edi_platform_integration_tests_global_state
+    type: state

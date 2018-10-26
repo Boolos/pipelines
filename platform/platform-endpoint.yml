@@ -1,0 +1,21 @@
+jobs:
+  - name: platform-endpoint_update_image
+    type: runSh
+    steps:
+      - IN: platform-endpoint_runCI
+      - TASK:
+          name: update_image
+          script:
+            - BRANCH="$(shipctl get_resource_version_key platform-endpoint_runCI BRANCH)"
+            - IS_PULL_REQUEST="$(shipctl get_resource_version_key platform-endpoint_runCI IS_PULL_REQUEST)"
+            - >-
+              if [ "$BRANCH" == "develop" ]  && [ "$IS_PULL_REQUEST" != true ]; then shipctl copy_resource_file_from_state platform-endpoint_runCI image_tag.env $JOB_STATE/platform-endpoint_image.env;
+              fi
+      - OUT: platform-endpoint_image
+resources:
+  - name: platform-endpoint_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: casestack/platform-endpoint
+      versionName: master.1

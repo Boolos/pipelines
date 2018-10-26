@@ -1,0 +1,21 @@
+jobs:
+  - name: platform-reverse-proxy_update_image
+    type: runSh
+    steps:
+      - IN: platform-reverse-proxy_runCI
+      - TASK:
+          name: update_image
+          script:
+            - BRANCH="$(shipctl get_resource_version_key platform-reverse-proxy_runCI BRANCH)"
+            - IS_PULL_REQUEST="$(shipctl get_resource_version_key platform-reverse-proxy_runCI IS_PULL_REQUEST)"
+            - >-
+              if [ "$BRANCH" == "develop" ]  && [ "$IS_PULL_REQUEST" != true ]; then shipctl copy_resource_file_from_state platform-reverse-proxy_runCI image_tag.env
+              $JOB_STATE/platform-reverse-proxy_image.env; fi
+      - OUT: platform-reverse-proxy_image
+resources:
+  - name: platform-reverse-proxy_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: casestack/platform-reverse-proxy
+      versionName: master.1

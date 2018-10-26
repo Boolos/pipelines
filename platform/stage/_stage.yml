@@ -1,0 +1,41 @@
+jobs:
+  - name: stage_platform_provision
+    type: provision
+    steps:
+      - IN: platform-reverse-proxy_stage_platform_loadbalancer
+      - IN: platform-ui_stage_platform_loadbalancer
+      - IN: platform-endpoint_stage_platform_loadbalancer
+      - IN: platform-oauth_stage_platform_loadbalancer
+      - IN: athenapdf-service_stage_platform_loadbalancer
+      - IN: supplypike-edi_stage_platform_loadbalancer
+resources:
+  - name: stage_platform_cluster
+    type: cluster
+    integration: staging_cluster
+    versionTemplate:
+      namespace: platform-stage
+  - name: stage_platform_kube_cli_config
+    type: cliConfig
+    integration: staging_cluster
+  - name: stage_platform_smoke_tests_params
+    type: params
+    versionTemplate:
+      params:
+        BROWSER: chrome
+        BROWSER_STACK_BUILD_VERSION: =SMOKE_TAG
+        SERVER_NAME: 'http://hub-cloud.browserstack.com/wd/hub'
+        URL: 'https://navigator-stage.supplypike.com/'
+  - name: stage_platform_smoke_tests_secrets
+    type: integration
+    integration: smoke_tests_stage_platform_secrets
+  - name: stage_platform_integration_tests_params
+    type: params
+    versionTemplate:
+      params:
+        BASE_URL: 'https://navigator-stage.supplypike.com'
+        RABBIT_HOST: lion.rmq.cloudamqp.com
+        RABBIT_PORT: '5672'
+        CONNECT_USER: 5c2e1201-e62d-4b61-9bce-2fea8a4ef4c3
+  - name: stage_platform_integration_tests_secrets
+    type: integration
+    integration: integration_tests_stage_platform_secrets

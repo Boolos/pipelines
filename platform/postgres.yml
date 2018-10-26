@@ -1,0 +1,8 @@
+jobs: []
+resources:
+  - name: postgres_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: postgres
+      versionName: 9.6-alpine

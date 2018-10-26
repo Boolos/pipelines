@@ -1,0 +1,90 @@
+jobs:
+  - name: platform-reverse-proxy_prod_platform_deploy
+    type: deploy
+    stabilityDuration: 120
+    maxWaitTime: 300
+    steps:
+      - IN: platform-reverse-proxy_stage_platform_smoke_tests
+      - IN: platform-reverse-proxy_stage_platform_deploy
+        switch: 'off'
+      - IN: prod_platform_cluster
+      - IN: platform-reverse-proxy_prod_platform_opts
+        applyTo:
+          - platform-reverse-proxy_image
+      - IN: platform-reverse-proxy_prod_platform_replicas
+        applyTo:
+          - platform-reverse-proxy_image
+  - name: platform-reverse-proxy_prod_platform_smoke_tests
+    type: runSh
+    steps:
+      - IN: platform-reverse-proxy_prod_platform_deploy
+      - IN: platform_docker_cli_config
+      - IN: prod_platform_smoke_tests_params
+      - IN: prod_platform_smoke_tests_secrets
+      - IN: platform-ui_platform_smoke_tests_global_state
+      - TASK:
+          name: smoke_tests
+          script:
+            - export SMOKE_TAG=$(shipctl get_resource_version_key platform-ui_platform_smoke_tests_global_state "SMOKE_TAG")
+            - 'docker run -e BROWSER -e BROWSER_STACK_BUILD_VERSION=$SMOKE_TAG -e SERVER_NAME -e URL -e BROWSER_STACK_KEY -e BROWSER_STACK_USER casestack/platform-ui:$SMOKE_TAG'
+    on_failure:
+      - NOTIFY: platform_slack_notifications
+resources:
+  - name: platform-reverse-proxy_prod_platform_opts
+    type: dockerOptions
+    versionTemplate:
+      portMappings:
+        - ':443'
+        - ':80'
+        - ':8080'
+      labels:
+        service: platform-reverse-proxy
+        environment: prod
+        app: platform
+      resources:
+        limits:
+          cpu: 500m
+          memory: 80Mi
+        requests:
+          cpu: 10m
+          memory: 50Mi
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8080
+        initialDelaySeconds: 30
+        timeoutSeconds: 1
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8080
+        initialDelaySeconds: 30
+        timeoutSeconds: 1
+  - name: platform-reverse-proxy_prod_platform_replicas
+    type: replicas
+    versionTemplate:
+      count: 2
+  - name: platform-reverse-proxy_prod_platform_loadbalancer
+    type: loadBalancer
+    integration: prod_cluster
+    versionTemplate:
+      sourceName: platform-reverse-proxy
+      method: NodePort
+      namespace: platform-prod
+      ports:
+        - name: https
+          port: 443
+          nodePort: 30283
+          protocol: TCP
+        - name: http
+          port: 80
+          nodePort: 30280
+          protocol: TCP
+        - name: traefik
+          port: 8080
+          nodePort: 30281
+          protocol: TCP
+      selector:
+        service: platform-reverse-proxy
+        environment: prod
+        app: platform

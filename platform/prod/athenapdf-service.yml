@@ -1,0 +1,79 @@
+jobs:
+  - name: athenapdf-service_prod_platform_deploy
+    type: deploy
+    stabilityDuration: 120
+    maxWaitTime: 300
+    steps:
+      - IN: athenapdf-service_stage_platform_integration_tests
+      - IN: athenapdf-service_stage_platform_deploy
+        switch: 'off'
+      - IN: prod_platform_cluster
+      - IN: athenapdf-service_prod_platform_opts
+        applyTo:
+          - athenapdf-service_image
+      - IN: athenapdf-service_prod_platform_replicas
+        applyTo:
+          - athenapdf-service_image
+  - name: athenapdf-service_prod_platform_smoke_tests
+    type: runSh
+    steps:
+      - IN: athenapdf-service_prod_platform_deploy
+      - IN: platform_docker_cli_config
+      - IN: prod_platform_smoke_tests_params
+      - IN: prod_platform_smoke_tests_secrets
+      - IN: platform-ui_platform_smoke_tests_global_state
+      - TASK:
+          name: smoke_tests
+          script:
+            - export SMOKE_TAG=$(shipctl get_resource_version_key platform-ui_platform_smoke_tests_global_state "SMOKE_TAG")
+            - 'docker run -e BROWSER -e BROWSER_STACK_BUILD_VERSION=$SMOKE_TAG -e SERVER_NAME -e URL -e BROWSER_STACK_KEY -e BROWSER_STACK_USER casestack/platform-ui:$SMOKE_TAG'
+    on_failure:
+      - NOTIFY: platform_slack_notifications
+resources:
+  - name: athenapdf-service_prod_platform_opts
+    type: dockerOptions
+    versionTemplate:
+      portMappings:
+        - ':8080'
+      labels:
+        service: athenapdf-service
+        environment: prod
+        app: platform
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 10m
+          memory: 300Mi
+      livenessProbe:
+        httpGet:
+          path: /
+          port: 8080
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+      readinessProbe:
+        httpGet:
+          path: /
+          port: 8080
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+  - name: athenapdf-service_prod_platform_replicas
+    type: replicas
+    versionTemplate:
+      count: 2
+  - name: athenapdf-service_prod_platform_loadbalancer
+    type: loadBalancer
+    integration: prod_cluster
+    versionTemplate:
+      sourceName: athenapdf-service
+      method: ClusterIP
+      namespace: platform-prod
+      ports:
+        - name: port-8080
+          port: 8080
+          protocol: TCP
+      selector:
+        service: athenapdf-service
+        environment: prod
+        app: platform

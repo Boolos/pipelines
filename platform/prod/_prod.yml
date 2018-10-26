@@ -1,0 +1,30 @@
+jobs:
+  - name: prod_platform_provision
+    type: provision
+    steps:
+      - IN: platform-reverse-proxy_prod_platform_loadbalancer
+      - IN: platform-ui_prod_platform_loadbalancer
+      - IN: platform-endpoint_prod_platform_loadbalancer
+      - IN: platform-oauth_prod_platform_loadbalancer
+      - IN: athenapdf-service_prod_platform_loadbalancer
+      - IN: supplypike-edi_prod_platform_loadbalancer
+resources:
+  - name: prod_platform_cluster
+    type: cluster
+    integration: prod_cluster
+    versionTemplate:
+      namespace: platform-prod
+  - name: prod_platform_kube_cli_config
+    type: cliConfig
+    integration: prod_cluster
+  - name: prod_platform_smoke_tests_params
+    type: params
+    versionTemplate:
+      params:
+        BROWSER: chrome
+        BROWSER_STACK_BUILD_VERSION: =SMOKE_TAG
+        SERVER_NAME: 'http://hub-cloud.browserstack.com/wd/hub'
+        URL: 'https://navigator.supplypike.com/'
+  - name: prod_platform_smoke_tests_secrets
+    type: integration
+    integration: smoke_tests_prod_platform_secrets

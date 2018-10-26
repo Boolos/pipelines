@@ -1,0 +1,130 @@
+jobs:
+  - name: supplypike-edi_prod_platform_create_secrets
+    type: runSh
+    steps:
+      - IN: supplypike-edi_stage_platform_integration_tests
+      - IN: prod_platform_kube_cli_config
+      - IN: platform_docker_cli_config
+      - IN: supplypike-edi_prod_platform_secrets
+      - IN: platform_secrets_password
+      - TASK:
+          name: create_secrets
+          script:
+            - export RABBIT_VHOST=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $RABBIT_VHOST)
+            - export RABBIT_LOGIN=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $RABBIT_LOGIN)
+            - export RABBIT_PASSWORD=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $RABBIT_PASSWORD)
+            - export MONGO_CREDENTIALS=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $MONGO_CREDENTIALS)
+            - export INTERNAL_USER=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $INTERNAL_USER)
+            - export INTERNAL_PASSWORD=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $INTERNAL_PASSWORD)
+            - export CONNECT_PASSWORD=$(docker run -e PASSWORD=$ENCRYPTION_KEY --entrypoint yarn casestack/cgen-server --silent decrypt $CONNECT_PASSWORD)
+            - 'export RABBIT_VHOST=$(if [ -z $RABBIT_VHOST ]; then echo "''''"; else echo -n $RABBIT_VHOST | base64 -w 0; fi)'
+            - 'export RABBIT_LOGIN=$(if [ -z $RABBIT_LOGIN ]; then echo "''''"; else echo -n $RABBIT_LOGIN | base64 -w 0; fi)'
+            - 'export RABBIT_PASSWORD=$(if [ -z $RABBIT_PASSWORD ]; then echo "''''"; else echo -n $RABBIT_PASSWORD | base64 -w 0; fi)'
+            - 'export MONGO_CREDENTIALS=$(if [ -z $MONGO_CREDENTIALS ]; then echo "''''"; else echo -n $MONGO_CREDENTIALS | base64 -w 0; fi)'
+            - 'export INTERNAL_USER=$(if [ -z $INTERNAL_USER ]; then echo "''''"; else echo -n $INTERNAL_USER | base64 -w 0; fi)'
+            - 'export INTERNAL_PASSWORD=$(if [ -z $INTERNAL_PASSWORD ]; then echo "''''"; else echo -n $INTERNAL_PASSWORD | base64 -w 0; fi)'
+            - 'export CONNECT_PASSWORD=$(if [ -z $CONNECT_PASSWORD ]; then echo "''''"; else echo -n $CONNECT_PASSWORD | base64 -w 0; fi)'
+            - |-
+              echo "apiVersion: v1
+              kind: Secret
+              metadata:
+                name: supplypike-edi
+                namespace: platform-prod
+              type: Opaque
+              data:
+                RABBIT_VHOST: $RABBIT_VHOST
+                RABBIT_LOGIN: $RABBIT_LOGIN
+                RABBIT_PASSWORD: $RABBIT_PASSWORD
+                MONGO_CREDENTIALS: $MONGO_CREDENTIALS
+                INTERNAL_USER: $INTERNAL_USER
+                INTERNAL_PASSWORD: $INTERNAL_PASSWORD
+                CONNECT_PASSWORD: $CONNECT_PASSWORD" > ./secrets.yaml
+            - kubectl -n platform-prod delete secret/supplypike-edi 2>/dev/null || echo "no pre-existing secrets"
+            - kubectl -n platform-prod create -f secrets.yaml
+  - name: supplypike-edi_prod_platform_deploy
+    type: deploy
+    stabilityDuration: 120
+    maxWaitTime: 300
+    steps:
+      - IN: supplypike-edi_prod_platform_create_secrets
+      - IN: supplypike-edi_stage_platform_deploy
+        switch: 'off'
+      - IN: prod_platform_cluster
+      - IN: supplypike-edi_prod_platform_opts
+        applyTo:
+          - supplypike-edi_image
+      - IN: supplypike-edi_prod_platform_replicas
+        applyTo:
+          - supplypike-edi_image
+      - IN: supplypike-edi_prod_platform_params
+        applyTo:
+          - supplypike-edi_image
+resources:
+  - name: supplypike-edi_prod_platform_secrets
+    type: params
+    versionTemplate:
+      params:
+        RABBIT_VHOST: agquxtds
+        RABBIT_LOGIN: agquxtds
+        RABBIT_PASSWORD: SHzkkQbfcEpaN5OtHI45JmiW8CBoVLsk
+        MONGO_CREDENTIALS: 'supplypike-edi-admin:Go3jDi9IPUfuWuUi0en4E9DeqIFg3LIv'
+        INTERNAL_USER: Q6wsecZf8H5PCtjdR3xudyfXB6mpGd0h
+        INTERNAL_PASSWORD: XqeOSWBbE4X8tog4Hi1AJbf91rQhMUjf
+        CONNECT_PASSWORD: hqUJYodi5do0GakS
+  - name: supplypike-edi_prod_platform_opts
+    type: dockerOptions
+    versionTemplate:
+      portMappings:
+        - ':40404'
+      labels:
+        service: supplypike-edi
+        environment: prod
+        app: platform
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 300m
+          memory: 300Mi
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 40404
+        initialDelaySeconds: 30
+        timeoutSeconds: 3
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 40404
+        initialDelaySeconds: 30
+        timeoutSeconds: 3
+  - name: supplypike-edi_prod_platform_replicas
+    type: replicas
+    versionTemplate:
+      count: 1
+  - name: supplypike-edi_prod_platform_loadbalancer
+    type: loadBalancer
+    integration: prod_cluster
+    versionTemplate:
+      sourceName: supplypike-edi
+      method: ClusterIP
+      namespace: platform-prod
+      ports:
+        - name: port-40404
+          port: 40404
+          protocol: TCP
+      selector:
+        service: supplypike-edi
+        environment: prod
+        app: platform
+  - name: supplypike-edi_prod_platform_params
+    type: params
+    versionTemplate:
+      params:
+        PORT: '40404'
+        LOG_LEVEL: trace
+        RABBIT_HOST: lion.rmq.cloudamqp.com
+        RABBIT_PORT: '5672'
+        MONGO_URL: 'ds049770-a1.mongolab.com:49770,ds049770-a0.mongolab.com:49770/supplypike-edi?replicaSet=rs-ds049770'
+        CONNECT_USER: 9eac3622-40dd-44cf-8ace-d5a853ac07ef

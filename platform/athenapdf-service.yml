@@ -1,0 +1,8 @@
+jobs: []
+resources:
+  - name: athenapdf-service_image
+    type: image
+    integration: docker_hub_casestack_integration
+    versionTemplate:
+      sourceName: arachnysdocker/athenapdf-service
+      versionName: 2.10.0
